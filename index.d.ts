@@ -28,8 +28,8 @@ export interface ClientOptions {
   /** Server port. */
   port?: number;
 }
-export function createFlightSqlClient(options: ClientOptions): Promise<FlightSqlClient>;
-export function rustCrateVersion(): string;
+export declare function createFlightSqlClient(options: ClientOptions): Promise<FlightSqlClient>;
+export declare function rustCrateVersion(): string;
 export interface GetDbSchemasOptions {
   /**
    * Specifies the Catalog to search for the tables.
@@ -81,6 +81,7 @@ export interface GetTablesOptions {
 }
 export class FlightSqlClient {
   query(query: string): Promise<Buffer>;
+  preparedStatement(query: string, params: Array<[string, string]>): Promise<Buffer>;
   getCatalogs(): Promise<Buffer>;
   getDbSchemas(options: GetDbSchemasOptions): Promise<Buffer>;
   getTables(options: GetTablesOptions): Promise<Buffer>;

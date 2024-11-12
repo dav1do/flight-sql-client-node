@@ -4,7 +4,10 @@ mod conversion;
 mod error;
 mod flight_client;
 
+use arrow_array::{ArrayRef, Datum as _, RecordBatch, StringArray};
+use arrow_cast::CastOptions;
 use arrow_flight::sql::{client::FlightSqlServiceClient, CommandGetDbSchemas, CommandGetTables};
+use arrow_schema::Schema;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use snafu::prelude::*;
@@ -28,6 +31,31 @@ impl FlightSqlClient {
         let mut prepared_stmt = client.prepare(query, None).await.context(ArrowSnafu {
             message: "failed to prepare statement",
         })?;
+        let flight_info = prepared_stmt.execute().await.context(ArrowSnafu {
+            message: "failed to execute prepared statement",
+        })?;
+        let batches = execute_flight(&mut client, flight_info).await?;
+        Ok(record_batch_to_buffer(batches)?.into())
+    }
+
+    #[napi]
+    pub async fn prepared_statement(
+        &self,
+        query: String,
+        params: Vec<(String, String)>,
+    ) -> napi::Result<Buffer> {
+        let mut client = self.client.lock().await;
+        let mut prepared_stmt = client.prepare(query, None).await.context(ArrowSnafu {
+            message: "failed to prepare statement",
+        })?;
+        let schema = prepared_stmt.parameter_schema().context(ArrowSnafu {
+            message: "failed to retrieve parameter schema from prepare statement",
+        })?;
+        prepared_stmt
+            .set_parameters(construct_record_batch_from_params(&params, schema)?)
+            .context(ArrowSnafu {
+                message: "failed to bind parameters",
+            })?;
         let flight_info = prepared_stmt.execute().await.context(ArrowSnafu {
             message: "failed to execute prepared statement",
         })?;
@@ -137,4 +165,31 @@ pub struct GetTablesOptions {
 
     /// Specifies if the Arrow schema should be returned for found tables.
     pub include_schema: Option<bool>,
+}
+
+fn construct_record_batch_from_params(
+    params: &[(String, String)],
+    parameter_schema: &Schema,
+) -> Result<RecordBatch> {
+    let mut items = Vec::<(&String, ArrayRef)>::new();
+
+    for (name, value) in params {
+        let field = parameter_schema.field_with_name(name).context(ArrowSnafu {
+            message: "failed to find field name in parameter schemas",
+        })?;
+        let value_as_array = StringArray::new_scalar(value);
+        let casted = arrow_cast::cast_with_options(
+            value_as_array.get().0,
+            field.data_type(),
+            &CastOptions::default(),
+        )
+        .context(ArrowSnafu {
+            message: "failed to cast parameter",
+        })?;
+        items.push((name, casted))
+    }
+
+    RecordBatch::try_from_iter(items).context(ArrowSnafu {
+        message: "failed to build record batch",
+    })
 }

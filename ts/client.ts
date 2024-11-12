@@ -32,6 +32,14 @@ export class ArrowFlightClient {
     return tableFromIPC(result);
   }
 
+  async preparedStatement<T extends TypeMap = any>(
+    query: string,
+    parameters: Array<[string, string]>,
+  ): Promise<Table<T>> {
+    const result = await this.client.preparedStatement(query, parameters);
+    return tableFromIPC(result);
+  }
+
   /**
    * Retrieve the list of catalogs on a Flight SQL enabled backend.
    *
